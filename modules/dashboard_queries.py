@@ -24,6 +24,29 @@ _is_system_schema_name = None
 _module_build_dashboard_heatwave_summary = None
 
 
+def _format_bytes(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "-"
+    units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"]
+    unit_index = 0
+    while number >= 1024 and unit_index < len(units) - 1:
+        number /= 1024.0
+        unit_index += 1
+    if unit_index == 0:
+        return f"{int(number)} {units[unit_index]}"
+    return f"{number:.1f} {units[unit_index]}"
+
+
+def _first_available_column(column_lookup, candidates):
+    for candidate in candidates:
+        actual_name = column_lookup.get(candidate.lower())
+        if actual_name:
+            return actual_name
+    return None
+
+
 def configure_dashboard_queries(
     *,
     execute_query,
