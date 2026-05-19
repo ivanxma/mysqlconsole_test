@@ -1,0 +1,996 @@
+{% extends "base.html" %}
+
+{% macro render_dashboard_report_table(report, empty_text="No rows returned.") %}
+{% if not report.columns and not report.rows %}
+<p class="helper-text">{{ empty_text }}</p>
+{% else %}
+<div class="table-wrap">
+  <table class="dashboard-compact-table">
+    <thead>
+      <tr>
+        {% for column in report.columns %}
+        <th>{{ column }}</th>
+        {% else %}
+        <th>No columns returned</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in report.rows %}
+      <tr>
+        {% for column in report.columns %}
+        <td>{{ row[column] }}</td>
+        {% endfor %}
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="{{ report.columns|length if report.columns else 1 }}">{{ empty_text }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endmacro %}
+
+{% block content %}
+<section class="page-header">
+  <p class="eyebrow">MySQL</p>
+  <h2>{{ server_overview.connection_endpoint }} / {{ server_overview.server_hostname }} / {{ server_overview.server_version }}</h2>
+  <p>Admin Dashboard for the connected server, user-schema inventory, storage footprint, security status, and HeatWave-related status indicators.</p>
+  <form method="get" action="{{ url_for('mysql_dashboard_download_page') }}" class="panel-actions">
+    <input type="hidden" name="dashboard_tab" value="{{ dashboard_tab }}">
+    <input type="hidden" name="error_period" value="{{ server_overview.selected_error_log_period.value }}">
+    {% if server_overview.selected_error_log_priorities %}
+      {% for priority in server_overview.selected_error_log_priorities %}
+      <input type="hidden" name="error_prio" value="{{ priority }}">
+      {% endfor %}
+    {% else %}
+      <input type="hidden" name="error_prio" value="all">
+    {% endif %}
+    <input type="hidden" name="error_code" value="{{ server_overview.selected_error_log_code }}">
+    <input type="hidden" name="message_like" value="{{ server_overview.selected_error_log_message_like }}">
+    <button class="button primary" type="submit">Download Dashboard HTML</button>
+  </form>
+</section>
+
+<nav class="tab-bar" role="tablist" aria-label="Admin dashboard sections">
+  <a class="tab-link {% if dashboard_tab == 'server-database' %}active{% endif %}" role="tab" aria-selected="{{ 'true' if dashboard_tab == 'server-database' else 'false' }}" href="{{ url_for('mysql_dashboard_page', dashboard_tab='server-database') }}">Server &amp; Database</a>
+  <a class="tab-link {% if dashboard_tab == 'logs' %}active{% endif %}" role="tab" aria-selected="{{ 'true' if dashboard_tab == 'logs' else 'false' }}" href="{{ url_for('mysql_dashboard_page', dashboard_tab='logs') }}">Logs</a>
+  <a class="tab-link {% if dashboard_tab == 'security' %}active{% endif %}" role="tab" aria-selected="{{ 'true' if dashboard_tab == 'security' else 'false' }}" href="{{ url_for('mysql_dashboard_page', dashboard_tab='security') }}">Security</a>
+  <a class="tab-link {% if dashboard_tab == 'heatwave' %}active{% endif %}" role="tab" aria-selected="{{ 'true' if dashboard_tab == 'heatwave' else 'false' }}" href="{{ url_for('mysql_dashboard_page', dashboard_tab='heatwave') }}">HeatWave</a>
+  <a class="tab-link {% if dashboard_tab == 'replication' %}active{% endif %}" role="tab" aria-selected="{{ 'true' if dashboard_tab == 'replication' else 'false' }}" href="{{ url_for('mysql_dashboard_page', dashboard_tab='replication') }}">Replication</a>
+</nav>
+
+{% if dashboard_tab == 'server-database' %}
+<section class="info-grid">
+  <article class="info-card metric-card">
+    <span class="metric-label">Endpoint</span>
+    <strong class="metric-value metric-value-compact">{{ server_overview.connection_endpoint }}</strong>
+  </article>
+  <article class="info-card metric-card">
+    <span class="metric-label">User Databases</span>
+    <strong class="metric-value">{{ server_overview.database_count }}</strong>
+  </article>
+  <article class="info-card metric-card">
+    <span class="metric-label">Total DB Size</span>
+    <strong class="metric-value">{{ server_overview.total_size_label }}</strong>
+  </article>
+  <article
+    class="info-card metric-card metric-card-clickable"
+    role="button"
+    tabindex="0"
+    aria-haspopup="dialog"
+    data-open-dialog="dashboard-innodb-dialog"
+  >
+    <span class="metric-label">InnoDB Tables</span>
+    <strong class="metric-value">{{ server_overview.innodb_table_count }}</strong>
+  </article>
+  <article
+    class="info-card metric-card metric-card-clickable"
+    role="button"
+    tabindex="0"
+    aria-haspopup="dialog"
+    data-open-dialog="dashboard-view-dialog"
+  >
+    <span class="metric-label">Views</span>
+    <strong class="metric-value">{{ server_overview.view_count }}</strong>
+  </article>
+  <article
+    class="info-card metric-card metric-card-clickable"
+    role="button"
+    tabindex="0"
+    aria-haspopup="dialog"
+    data-open-dialog="dashboard-routine-dialog"
+  >
+    <span class="metric-label">Stored Procedures / Functions</span>
+    <strong class="metric-value">{{ server_overview.routine_count }}</strong>
+  </article>
+</section>
+
+<dialog class="management-dialog management-dialog-wide" id="dashboard-innodb-dialog">
+  <div class="management-dialog-shell">
+    <div class="panel-header">
+      <div>
+        <h3>InnoDB Tables</h3>
+        <span class="helper-text">User-schema base tables currently using the InnoDB engine.</span>
+      </div>
+      <button class="button secondary" type="button" data-dialog-close="dashboard-innodb-dialog">Close</button>
+    </div>
+    <div class="table-wrap dashboard-dialog-table-wrap">
+      <table class="dashboard-compact-table">
+        <thead>
+          <tr>
+            <th>Database</th>
+            <th>Table</th>
+            <th>Engine</th>
+            <th>Rows</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in server_overview.innodb_table_rows %}
+          <tr>
+            <td>{{ row.database_name }}</td>
+            <td>{{ row.table_name }}</td>
+            <td>{{ row.engine }}</td>
+            <td>{{ row.row_count }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="4">No user-schema InnoDB tables were returned.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</dialog>
+
+<dialog class="management-dialog management-dialog-wide" id="dashboard-view-dialog">
+  <div class="management-dialog-shell">
+    <div class="panel-header">
+      <div>
+        <h3>Views</h3>
+        <span class="helper-text">User-schema views returned from <code>information_schema.views</code>.</span>
+      </div>
+      <button class="button secondary" type="button" data-dialog-close="dashboard-view-dialog">Close</button>
+    </div>
+    <div class="table-wrap dashboard-dialog-table-wrap">
+      <table class="dashboard-compact-table">
+        <thead>
+          <tr>
+            <th>Database</th>
+            <th>View</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in server_overview.view_rows %}
+          <tr>
+            <td>{{ row.database_name }}</td>
+            <td>{{ row.view_name }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="2">No user-schema views were returned.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</dialog>
+
+<dialog class="management-dialog management-dialog-wide" id="dashboard-routine-dialog">
+  <div class="management-dialog-shell">
+    <div class="panel-header">
+      <div>
+        <h3>Stored Procedures / Functions</h3>
+        <span class="helper-text">User-schema routines from <code>information_schema.routines</code>, including procedures and functions.</span>
+      </div>
+      <button class="button secondary" type="button" data-dialog-close="dashboard-routine-dialog">Close</button>
+    </div>
+    <div class="table-wrap dashboard-dialog-table-wrap">
+      <table class="dashboard-compact-table">
+        <thead>
+          <tr>
+            <th>Database</th>
+            <th>Type</th>
+            <th>Name</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in server_overview.routine_rows %}
+          <tr>
+            <td>{{ row.database_name }}</td>
+            <td>{{ row.routine_type }}</td>
+            <td>{{ row.routine_name }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="3">No user-schema stored procedures or functions were returned.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</dialog>
+
+<section class="panel">
+  <h3>Connection Details</h3>
+  <dl class="detail-list dashboard-detail-list">
+    <div>
+      <dt>Version</dt>
+      <dd>{{ server_overview.server_version }}</dd>
+    </div>
+    <div>
+      <dt>MySQL Shell</dt>
+      <dd>{{ server_overview.mysql_shell_version }}</dd>
+    </div>
+    <div>
+      <dt>Current User</dt>
+      <dd>{{ server_overview.current_user }}</dd>
+    </div>
+    <div>
+      <dt>Profile</dt>
+      <dd>{{ current_profile_name or "-" }}</dd>
+    </div>
+    <div>
+      <dt>Default DB</dt>
+      <dd>{{ server_overview.default_database }}</dd>
+    </div>
+    <div>
+      <dt>Object Storage</dt>
+      <dd>{{ setup_status.summary }}</dd>
+    </div>
+    <div>
+      <dt>Global Time Zone</dt>
+      <dd>{{ server_overview.global_time_zone }}</dd>
+    </div>
+    <div>
+      <dt>Session Time Zone</dt>
+      <dd>{{ server_overview.session_time_zone }}</dd>
+    </div>
+    <div>
+      <dt>System Time Zone</dt>
+      <dd>{{ server_overview.system_time_zone }}</dd>
+    </div>
+    <div>
+      <dt>Time Zone Tables</dt>
+      <dd>{{ server_overview.time_zone_tables_label }}</dd>
+    </div>
+    <div>
+      <dt>Time Zone Table Rows</dt>
+      <dd>{{ server_overview.time_zone_table_row_count }}</dd>
+    </div>
+    <div>
+      <dt>Server Charset</dt>
+      <dd>{{ server_overview.server_charset }}</dd>
+    </div>
+    <div>
+      <dt>Server Collation</dt>
+      <dd>{{ server_overview.server_collation }}</dd>
+    </div>
+    <div>
+      <dt>Global SQL Mode</dt>
+      <dd><code>{{ server_overview.global_sql_mode or "-" }}</code></dd>
+    </div>
+    <div>
+      <dt>Session SQL Mode</dt>
+      <dd><code>{{ server_overview.session_sql_mode or "-" }}</code></dd>
+    </div>
+    <div>
+      <dt>Current Connections</dt>
+      <dd>{{ server_overview.current_connection_count }}</dd>
+    </div>
+    <div>
+      <dt>Max Connections</dt>
+      <dd>{{ server_overview.max_connections }}</dd>
+    </div>
+  </dl>
+  {% if server_overview.time_zone_tables_error %}
+  <p class="helper-text error-text">{{ server_overview.time_zone_tables_error }}</p>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if dashboard_tab == 'security' %}
+<section class="panel">
+  <div class="panel-header">
+    <div>
+      <h3>Security</h3>
+      <span class="helper-text">Component inventory, security features, MySQL Audit, MySQL Firewall, and password-related server state.</span>
+    </div>
+  </div>
+    <div class="dashboard-security-stack">
+      <article class="dashboard-compact-card">
+        <h4>Security Overview</h4>
+        <dl class="detail-list dashboard-detail-list">
+          <div>
+            <dt>Installed Components</dt>
+            <dd>{{ server_overview.installed_component_count }}</dd>
+          </div>
+          <div>
+            <dt>Security Features</dt>
+            <dd>{{ server_overview.security_feature_count }}</dd>
+          </div>
+          <div>
+            <dt>Enabled / Active</dt>
+            <dd>{{ server_overview.enabled_security_feature_count }}</dd>
+          </div>
+          <div>
+            <dt>Audit</dt>
+            <dd>{{ server_overview.audit_info.enabled_label }}</dd>
+          </div>
+          <div>
+            <dt>Firewall</dt>
+            <dd>{{ server_overview.firewall_info.enabled_label }}</dd>
+          </div>
+          <div>
+            <dt>Password Policy</dt>
+            <dd>{{ server_overview.password_info.enabled_label }}</dd>
+          </div>
+        </dl>
+        {% if server_overview.installed_components_error %}
+        <p class="helper-text error-text">{{ server_overview.installed_components_error }}</p>
+        {% endif %}
+        {% if server_overview.security_features_error %}
+        <p class="helper-text error-text">{{ server_overview.security_features_error }}</p>
+        {% endif %}
+      </article>
+
+      <section class="split-layout split-layout-compact dashboard-security-grid">
+        <article class="dashboard-compact-card">
+          <h4>MySQL Audit</h4>
+          <dl class="detail-list dashboard-detail-list">
+            <div>
+              <dt>Status</dt>
+              <dd>{{ server_overview.audit_info.enabled_label }}</dd>
+            </div>
+            <div>
+              <dt>Filters</dt>
+              <dd>{{ server_overview.audit_info.filter_rows|length }}</dd>
+            </div>
+            <div>
+              <dt>Applied Users</dt>
+              <dd>{{ server_overview.audit_info.user_rows|length }}</dd>
+            </div>
+          </dl>
+          {% for error in server_overview.audit_info.errors %}
+          <p class="helper-text error-text">{{ error }}</p>
+          {% endfor %}
+          <div class="table-wrap">
+            <table class="dashboard-compact-table dashboard-security-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in server_overview.audit_info.variables + server_overview.audit_info.status_rows %}
+                <tr>
+                  <td>{{ row.name }}</td>
+                  <td><span class="dashboard-cell-clamp">{{ row.value }}</span></td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="2">No audit variables or status rows were returned.</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="table-wrap">
+            <table class="dashboard-compact-table dashboard-security-table">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Host</th>
+                  <th>Filter</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in server_overview.audit_info.user_rows %}
+                <tr>
+                  <td>{{ row.user }}</td>
+                  <td>{{ row.host }}</td>
+                  <td><span class="dashboard-cell-clamp">{{ row.filter_name }}</span></td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="3">No audit user filter assignments were returned.</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="table-wrap">
+            <table class="dashboard-compact-table dashboard-security-table">
+              <thead>
+                <tr>
+                  <th>Filter</th>
+                  <th>Rule</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in server_overview.audit_info.filter_rows %}
+                <tr>
+                  <td>{{ row.filter_name }}</td>
+                  <td><span class="dashboard-cell-clamp">{{ row.filter_rule }}</span></td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="2">No audit filter definitions were returned.</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="dashboard-compact-card">
+          <h4>MySQL Firewall</h4>
+          <dl class="detail-list dashboard-detail-list">
+            <div>
+              <dt>Status</dt>
+              <dd>{{ server_overview.firewall_info.enabled_label }}</dd>
+            </div>
+            <div>
+              <dt>Users</dt>
+              <dd>{{ server_overview.firewall_info.user_rows|length }}</dd>
+            </div>
+            <div>
+              <dt>Rules</dt>
+              <dd>{{ server_overview.firewall_info.rule_rows|length }}</dd>
+            </div>
+          </dl>
+          {% for error in server_overview.firewall_info.errors %}
+          <p class="helper-text error-text">{{ error }}</p>
+          {% endfor %}
+          <div class="table-wrap">
+            <table class="dashboard-compact-table dashboard-security-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in server_overview.firewall_info.variables + server_overview.firewall_info.status_rows %}
+                <tr>
+                  <td>{{ row.name }}</td>
+                  <td><span class="dashboard-cell-clamp">{{ row.value }}</span></td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="2">No firewall variables or status rows were returned.</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="table-wrap">
+            <table class="dashboard-compact-table dashboard-security-table">
+              <thead>
+                <tr>
+                  <th>User Host</th>
+                  <th>Mode</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in server_overview.firewall_info.user_rows %}
+                <tr>
+                  <td>{{ row.user_host }}</td>
+                  <td>{{ row.mode }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="2">No firewall user profiles were returned.</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="table-wrap">
+            <table class="dashboard-compact-table dashboard-security-table">
+              <thead>
+                <tr>
+                  <th>User Host</th>
+                  <th>Rule</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in server_overview.firewall_info.rule_rows %}
+                <tr>
+                  <td>{{ row.user_host }}</td>
+                  <td><span class="dashboard-cell-clamp">{{ row.rule }}</span></td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="2">No firewall allowlist rules were returned.</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <article class="dashboard-compact-card">
+        <h4>Password Policy</h4>
+        <dl class="detail-list dashboard-detail-list">
+          <div>
+            <dt>Status</dt>
+            <dd>{{ server_overview.password_info.enabled_label }}</dd>
+          </div>
+          <div>
+            <dt>Variables</dt>
+            <dd>{{ server_overview.password_info.variables|length }}</dd>
+          </div>
+          <div>
+            <dt>Status Rows</dt>
+            <dd>{{ server_overview.password_info.status_rows|length }}</dd>
+          </div>
+        </dl>
+        {% for error in server_overview.password_info.errors %}
+        <p class="helper-text error-text">{{ error }}</p>
+        {% endfor %}
+        <div class="table-wrap">
+          <table class="dashboard-compact-table dashboard-security-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in server_overview.password_info.variables + server_overview.password_info.status_rows %}
+              <tr>
+                <td>{{ row.name }}</td>
+                <td><span class="dashboard-cell-clamp">{{ row.value }}</span></td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="2">No password-related variables or status rows were returned.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <section class="split-layout split-layout-compact dashboard-security-grid">
+        <article class="dashboard-compact-card">
+          <h4>Components and Plugins</h4>
+          <div class="table-wrap">
+            <table class="dashboard-compact-table dashboard-security-table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Name</th>
+                  <th>Status</th>
+                  <th>Enabled</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in server_overview.security_features %}
+                <tr>
+                  <td>{{ row.feature_type }}</td>
+                  <td>{{ row.feature_name }}</td>
+                  <td>{{ row.status_label }}</td>
+                  <td>{{ "Yes" if row.is_enabled else "No" }}</td>
+                  <td><span class="dashboard-cell-clamp">{{ row.details }}</span></td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="5">No security-related components or plugins were detected.</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="dashboard-compact-card">
+          <h4>Component List</h4>
+          <div class="table-wrap">
+            <table class="dashboard-compact-table dashboard-security-table">
+              <thead>
+                <tr>
+                  <th>Component</th>
+                  <th>URN</th>
+                  <th>Security Related</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in server_overview.installed_components %}
+                <tr>
+                  <td>{{ row.component_name }}</td>
+                  <td><span class="dashboard-cell-clamp">{{ row.component_urn }}</span></td>
+                  <td>{{ "Yes" if row.is_security_related else "No" }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="3">No installed components returned.</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+    </div>
+</section>
+{% endif %}
+
+{% if dashboard_tab == 'logs' %}
+<section class="panel">
+  <div class="panel-header">
+    <div>
+      <h3>Logs</h3>
+      <span class="helper-text">Filtered <code>performance_schema.error_log</code> rows.</span>
+    </div>
+  </div>
+    <form method="get" class="form-grid compact-form error-log-filter-form" data-error-log-filter-form>
+      <input type="hidden" name="dashboard_tab" value="logs">
+      <label>
+        Period
+        <select name="error_period">
+          {% for option in server_overview.error_log_period_options %}
+          <option value="{{ option.value }}" {% if option.value == server_overview.selected_error_log_period.value %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="priority-filter-shell">
+        <span class="metric-label">Priority Selection</span>
+        <div class="priority-filter-list">
+          <label class="priority-filter-option">
+            <input
+              type="checkbox"
+              name="error_prio"
+              value="all"
+              data-error-priority-all
+              {% if not server_overview.selected_error_log_priorities %}checked{% endif %}
+            >
+            <span>All</span>
+          </label>
+          {% for priority in server_overview.error_log_priority_options %}
+          <label class="priority-filter-option priority-filter-option-{{ priority|lower }}">
+            <input
+              type="checkbox"
+              name="error_prio"
+              value="{{ priority }}"
+              data-error-priority-value
+              {% if server_overview.selected_error_log_priorities and priority in server_overview.selected_error_log_priorities %}checked{% endif %}
+            >
+            <span>{{ priority }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      <label>
+        Error Code
+        <input type="text" name="error_code" value="{{ server_overview.selected_error_log_code }}" placeholder='IN ("code1", "code2") or NOT IN ("code3")'>
+      </label>
+      <label>
+        Message
+        <input type="text" name="message_like" value="{{ server_overview.selected_error_log_message_like }}" placeholder="Contains text">
+      </label>
+      <div class="form-actions">
+        <button class="button primary" type="submit">Apply Filter</button>
+      </div>
+    </form>
+    <dl class="detail-list dashboard-detail-list">
+      <div>
+        <dt>Period</dt>
+        <dd>{{ server_overview.selected_error_log_period.label }}</dd>
+      </div>
+      <div>
+        <dt>Selected PRIO</dt>
+        <dd>{{ server_overview.selected_error_log_priority_label }}</dd>
+      </div>
+      <div>
+        <dt>Error Code</dt>
+        <dd>{{ server_overview.selected_error_log_code or "Any" }}</dd>
+      </div>
+      <div>
+        <dt>Message</dt>
+        <dd>{{ server_overview.selected_error_log_message_like or "Any" }}</dd>
+      </div>
+      <div>
+        <dt>Returned Rows</dt>
+        <dd>{{ server_overview.recent_error_log_count }}</dd>
+      </div>
+    </dl>
+    {% if server_overview.recent_error_log_error %}
+    <p class="helper-text error-text">{{ server_overview.recent_error_log_error }}</p>
+    {% endif %}
+    <div class="table-wrap">
+      <table class="dashboard-compact-table">
+        <thead>
+          <tr>
+            <th>Logged</th>
+            <th>Priority</th>
+            <th>Subsystem</th>
+            <th>Error Code</th>
+            <th>Message</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in server_overview.recent_error_log_rows %}
+          <tr>
+            <td>{{ row.logged }}</td>
+            <td><span class="priority-badge priority-badge-{{ row.priority|string|lower }}">{{ row.priority }}</span></td>
+            <td>{{ row.subsystem }}</td>
+            <td>{{ row.error_code }}</td>
+            <td>{{ row.message }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="5">No rows were returned for the selected period and priorities.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+</section>
+{% endif %}
+
+{% if dashboard_tab == 'replication' %}
+<section class="panel">
+  <div class="panel-header">
+    <h3>Replication</h3>
+    <span class="helper-text">Replica status, Performance Schema replication tables, and Group Replication metadata when available.</span>
+  </div>
+  <dl class="detail-list dashboard-detail-list">
+    <div>
+      <dt>Replica Channels</dt>
+      <dd>{{ server_overview.replication_info.replica_channel_count }}</dd>
+    </div>
+    <div>
+      <dt>Replica IO</dt>
+      <dd>{{ server_overview.replication_info.replica_io_running_label }}</dd>
+    </div>
+    <div>
+      <dt>Replica SQL</dt>
+      <dd>{{ server_overview.replication_info.replica_sql_running_label }}</dd>
+    </div>
+    <div>
+      <dt>Replica Lag</dt>
+      <dd>{{ server_overview.replication_info.replica_lag_label }}</dd>
+    </div>
+    <div>
+      <dt>Performance Schema Channels</dt>
+      <dd>{{ server_overview.replication_info.performance_schema_channel_count }}</dd>
+    </div>
+    <div>
+      <dt>Group Members</dt>
+      <dd>{{ server_overview.replication_info.group_member_count }}</dd>
+    </div>
+  </dl>
+  {% if server_overview.replication_info.replica_status.error %}
+  <p class="helper-text error-text">{{ server_overview.replication_info.replica_status.error }}</p>
+  {% endif %}
+  <h4>Replica Status</h4>
+  {{ render_dashboard_report_table(server_overview.replication_info.replica_status, "No replica status rows returned.") }}
+  <section class="split-layout split-layout-compact dashboard-security-grid">
+    <article class="dashboard-compact-card">
+      <h4>Replication Connection Status</h4>
+      {% if server_overview.replication_info.replication_connection.error %}
+      <p class="helper-text error-text">{{ server_overview.replication_info.replication_connection.error }}</p>
+      {% else %}
+      {{ render_dashboard_report_table(server_overview.replication_info.replication_connection, "No replication connection rows returned.") }}
+      {% endif %}
+    </article>
+    <article class="dashboard-compact-card">
+      <h4>Replication Applier Coordinator</h4>
+      {% if server_overview.replication_info.replication_applier.error %}
+      <p class="helper-text error-text">{{ server_overview.replication_info.replication_applier.error }}</p>
+      {% else %}
+      {{ render_dashboard_report_table(server_overview.replication_info.replication_applier, "No replication applier coordinator rows returned.") }}
+      {% endif %}
+    </article>
+  </section>
+  <h4>Replication Applier Workers</h4>
+  {% if server_overview.replication_info.replication_workers.error %}
+  <p class="helper-text error-text">{{ server_overview.replication_info.replication_workers.error }}</p>
+  {% else %}
+  {{ render_dashboard_report_table(server_overview.replication_info.replication_workers, "No replication applier worker rows returned.") }}
+  {% endif %}
+  <section class="split-layout split-layout-compact dashboard-security-grid">
+    <article class="dashboard-compact-card">
+      <h4>Group Replication Members</h4>
+      {% if server_overview.replication_info.group_members.error %}
+      <p class="helper-text error-text">{{ server_overview.replication_info.group_members.error }}</p>
+      {% else %}
+      {{ render_dashboard_report_table(server_overview.replication_info.group_members, "No Group Replication member rows returned.") }}
+      {% endif %}
+    </article>
+    <article class="dashboard-compact-card">
+      <h4>Group Replication Member Stats</h4>
+      {% if server_overview.replication_info.group_member_stats.error %}
+      <p class="helper-text error-text">{{ server_overview.replication_info.group_member_stats.error }}</p>
+      {% else %}
+      {{ render_dashboard_report_table(server_overview.replication_info.group_member_stats, "No Group Replication member stats rows returned.") }}
+      {% endif %}
+    </article>
+  </section>
+</section>
+{% endif %}
+
+{% if dashboard_tab == 'heatwave' %}
+<section class="panel">
+  <div class="panel-header">
+    <h3>HeatWave Status</h3>
+    <span class="helper-text">Global status rows filtered to <code>rapid%status</code>.</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in server_overview.rapid_status_rows %}
+        <tr>
+          <td>{{ row.Variable_name or row.variable_name or row.name or "-" }}</td>
+          <td>{{ row.Value or row.value or "-" }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="2">No HeatWave status rows returned.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{% if dashboard_tab in ['server-database', 'heatwave'] %}
+<section class="panel">
+  <div class="panel-header">
+    <h3>Database Inventory</h3>
+    <span class="helper-text">System schemas like <code>mysql</code>, <code>mysql_*</code>, <code>information_schema</code>, <code>performance_schema</code>, and <code>sys</code> are excluded.</span>
+  </div>
+  {% if heatwave_summary.error %}
+  <p class="helper-text error-text">HeatWave load counts fall back to available metadata only because the full inventory query returned an error.</p>
+  {% endif %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Database</th>
+          <th>DB Size</th>
+          <th>Base Tables</th>
+          <th>InnoDB</th>
+          <th>Views</th>
+          <th>Stored Procedures / Functions</th>
+          {% if dashboard_tab == 'heatwave' %}
+          <th>HeatWave Tables</th>
+          <th>Loaded 100%</th>
+          <th>Partial</th>
+          <th>None</th>
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in database_inventory %}
+        <tr>
+          <td>{{ row.database_name }}</td>
+          <td>{{ row.db_size_label }}</td>
+          <td>{{ row.base_table_count }}</td>
+          <td>{{ row.innodb_table_count }}</td>
+          <td>{{ row.view_count }}</td>
+          <td>{{ row.routine_count }}</td>
+          {% if dashboard_tab == 'heatwave' %}
+          <td>{{ row.heatwave_table_count }}</td>
+          <td>{{ row.heatwave_loaded_count }}</td>
+          <td>{{ row.heatwave_partial_count }}</td>
+          <td>{{ row.heatwave_not_loaded_count }}</td>
+          {% endif %}
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="{{ 10 if dashboard_tab == 'heatwave' else 6 }}">No database metadata available.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (() => {
+    const openDialog = (dialog) => {
+      if (!dialog) {
+        return;
+      }
+      if (typeof dialog.showModal === "function") {
+        if (!dialog.open) {
+          dialog.showModal();
+        }
+        return;
+      }
+      dialog.setAttribute("open", "open");
+    };
+
+    const closeDialog = (dialog) => {
+      if (!dialog) {
+        return;
+      }
+      if (typeof dialog.close === "function") {
+        dialog.close();
+        return;
+      }
+      dialog.removeAttribute("open");
+    };
+
+    document.querySelectorAll("[data-error-log-filter-form]").forEach((form) => {
+      const allPriority = form.querySelector("[data-error-priority-all]");
+      const priorityValues = Array.from(form.querySelectorAll("[data-error-priority-value]"));
+      if (!allPriority) {
+        return;
+      }
+
+      allPriority.addEventListener("change", () => {
+        if (!allPriority.checked) {
+          return;
+        }
+        priorityValues.forEach((input) => {
+          input.checked = false;
+        });
+      });
+
+      priorityValues.forEach((input) => {
+        input.addEventListener("change", () => {
+          if (input.checked) {
+            allPriority.checked = false;
+            return;
+          }
+          if (!priorityValues.some((priorityInput) => priorityInput.checked)) {
+            allPriority.checked = true;
+          }
+        });
+      });
+    });
+
+    document.querySelectorAll("[data-open-dialog]").forEach((trigger) => {
+      const showLinkedDialog = () => {
+        openDialog(document.getElementById(trigger.dataset.openDialog));
+      };
+      trigger.addEventListener("click", showLinkedDialog);
+      if (trigger.getAttribute("role") === "button") {
+        trigger.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" && event.key !== " ") {
+            return;
+          }
+          event.preventDefault();
+          showLinkedDialog();
+        });
+      }
+    });
+
+    document.querySelectorAll("[data-dialog-close]").forEach((button) => {
+      button.addEventListener("click", () => {
+        closeDialog(document.getElementById(button.dataset.dialogClose) || button.closest("dialog"));
+      });
+    });
+
+    document.querySelectorAll("dialog.management-dialog").forEach((dialog) => {
+      dialog.addEventListener("click", (event) => {
+        if (event.target === dialog) {
+          closeDialog(dialog);
+        }
+      });
+    });
+  })();
+</script>
+{% endblock %}

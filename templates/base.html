@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title or app_title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body>
+    <div class="page-shell">
+      {% if logged_in %}
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">MySQL HeatWave</p>
+          <h1><a class="topbar-home-link" href="{{ url_for('mysql_dashboard_page') }}">{{ app_title }}</a></h1>
+        </div>
+        <div class="user-menu" data-user-menu>
+          <button class="user-menu-button" type="button" aria-label="User settings" aria-expanded="false" data-user-menu-button>
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <circle cx="12" cy="8" r="4"></circle>
+              <path d="M4 21a8 8 0 0 1 16 0"></path>
+            </svg>
+          </button>
+          <div class="user-menu-panel" data-user-menu-panel hidden>
+            <dl class="user-menu-details">
+              <div>
+                <dt>App Version</dt>
+                <dd>{{ app_version or "-" }}</dd>
+              </div>
+              <div>
+                <dt>Update</dt>
+                <dd>
+                  {% if version_check and version_check.update_available %}
+                  Available: {{ version_check.repo_version }}
+                  {% else %}
+                  Up to date
+                  {% endif %}
+                </dd>
+              </div>
+              <div>
+                <dt>User</dt>
+                <dd>{{ current_user or "-" }}</dd>
+              </div>
+              <div>
+                <dt>Profile</dt>
+                <dd>{{ current_profile_name or "-" }}</dd>
+              </div>
+              <div>
+                <dt>Connection</dt>
+                <dd>{{ connection_summary or "-" }}</dd>
+              </div>
+            </dl>
+            <div class="user-menu-actions">
+              {% if can_use_auto_update %}
+              <a class="button secondary" href="{{ url_for('update_dbconsole_page') }}">Update</a>
+              {% endif %}
+              <form method="post" action="{{ url_for('logout') }}">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <button class="button secondary" type="submit">Logout</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <nav class="nav-groups">
+        {% for group in nav_groups %}
+        {% set group_id = "nav-group-" ~ loop.index %}
+        <section class="nav-group" data-nav-group>
+          <button
+            class="nav-group-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="{{ group_id }}"
+            data-nav-toggle
+          >
+            <span class="nav-group-title">{{ group["label"] }}</span>
+            <span class="nav-group-caret" aria-hidden="true"></span>
+          </button>
+          <div class="nav-links" id="{{ group_id }}" data-nav-links hidden>
+            {% for item in group["items"] %}
+            <a
+              href="{{ url_for(item["endpoint"]) }}"
+              class="nav-link {% if current_endpoint == item["endpoint"] %}active{% endif %}"
+            >
+              {{ item["label"] }}
+            </a>
+            {% endfor %}
+          </div>
+        </section>
+        {% endfor %}
+      </nav>
+      {% endif %}
+
+      <main class="content-card">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <div class="flash-stack">
+              {% for category, message in messages %}
+              <div class="flash {{ category }}">{{ message }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+
+    {% if logged_in %}
+    <script>
+      (() => {
+        const groups = Array.from(document.querySelectorAll("[data-nav-group]"));
+        const storageKey = "dbconsole-open-nav-group";
+        if (!groups.length) {
+          return;
+        }
+
+        const setOpenGroup = (groupToOpen) => {
+          groups.forEach((group) => {
+            const button = group.querySelector("[data-nav-toggle]");
+            const links = group.querySelector("[data-nav-links]");
+            const isOpen = group === groupToOpen;
+            group.classList.toggle("open", isOpen);
+            if (button) {
+              button.setAttribute("aria-expanded", isOpen ? "true" : "false");
+            }
+            if (links) {
+              links.hidden = !isOpen;
+            }
+          });
+          if (!groupToOpen) {
+            window.sessionStorage.removeItem(storageKey);
+            return;
+          }
+          const links = groupToOpen.querySelector("[data-nav-links]");
+          if (links && links.id) {
+            window.sessionStorage.setItem(storageKey, links.id);
+          }
+        };
+
+        const savedId = window.sessionStorage.getItem(storageKey);
+        const initialGroup = groups.find((group) => {
+          const links = group.querySelector("[data-nav-links]");
+          return links && links.id === savedId;
+        }) || groups.find((group) => group.querySelector(".nav-link.active")) || null;
+        setOpenGroup(initialGroup);
+
+        groups.forEach((group) => {
+          const button = group.querySelector("[data-nav-toggle]");
+          if (!button) {
+            return;
+          }
+          button.addEventListener("click", () => {
+            setOpenGroup(group.classList.contains("open") ? null : group);
+          });
+        });
+      })();
+      (() => {
+        const menu = document.querySelector("[data-user-menu]");
+        if (!menu) {
+          return;
+        }
+        const button = menu.querySelector("[data-user-menu-button]");
+        const panel = menu.querySelector("[data-user-menu-panel]");
+        const setOpen = (isOpen) => {
+          panel.hidden = !isOpen;
+          button.setAttribute("aria-expanded", isOpen ? "true" : "false");
+          menu.classList.toggle("open", isOpen);
+        };
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          setOpen(panel.hidden);
+        });
+        document.addEventListener("click", (event) => {
+          if (!menu.contains(event.target)) {
+            setOpen(false);
+          }
+        });
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") {
+            setOpen(false);
+          }
+        });
+      })();
+      (() => {
+        const tableWraps = Array.from(document.querySelectorAll(".table-wrap"));
+        const parseCellValue = (row, index) => (row.cells[index]?.innerText || "").trim();
+        const compareValues = (a, b) => {
+          const numberA = Number(a.replace(/,/g, ""));
+          const numberB = Number(b.replace(/,/g, ""));
+          if (!Number.isNaN(numberA) && !Number.isNaN(numberB) && a !== "" && b !== "") {
+            return numberA - numberB;
+          }
+          return a.localeCompare(b, undefined, {numeric: true, sensitivity: "base"});
+        };
+        const resetIconMarkup = `
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M3 12a9 9 0 1 0 3-6.7"></path>
+            <path d="M3 3v6h6"></path>
+          </svg>
+        `;
+        const downloadIconMarkup = `
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <path d="M7 10l5 5 5-5"></path>
+            <path d="M12 15V3"></path>
+          </svg>
+        `;
+        const toCsvCell = (value) => {
+          const raw = String(value ?? "");
+          if (raw.includes(",") || raw.includes('"') || raw.includes("\n")) {
+            return `"${raw.replaceAll('"', '""')}"`;
+          }
+          return raw;
+        };
+        const downloadTableCsv = (table, tableIndex) => {
+          const headerCells = Array.from(table.tHead?.rows[0]?.cells || []);
+          const headers = headerCells.map((cell) => {
+            const labelNode = cell.querySelector(".table-sort-button span:first-child");
+            return (labelNode?.textContent || cell.innerText || "").trim();
+          });
+          const bodyRows = Array.from(table.tBodies)
+            .flatMap((tbody) => Array.from(tbody.rows));
+          const fallbackRows = bodyRows.length ? bodyRows : Array.from(table.rows);
+          const fallbackColumnCount = Math.max(...fallbackRows.map((row) => row.cells.length), 0);
+          const normalizedHeaders = headers.length
+            ? headers
+            : Array.from({length: fallbackColumnCount}, (_, index) => `Column ${index + 1}`);
+          const rows = fallbackRows.map((row) => Array.from(row.cells).map((cell) => cell.innerText.trim()));
+          const csvText = [normalizedHeaders, ...rows].map((row) => row.map(toCsvCell).join(",")).join("\n");
+          const blob = new Blob([csvText], {type: "text/csv;charset=utf-8"});
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          const pageName = (document.title || "dbconsole").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "dbconsole";
+          const timestamp = new Date().toISOString().replaceAll(":", "-");
+          link.href = url;
+          link.download = `${pageName}-table-${tableIndex + 1}-${timestamp}.csv`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        };
+
+        tableWraps.forEach((wrap, tableIndex) => {
+          const table = wrap.querySelector("table");
+          if (!table || table.dataset.enhancedTable) {
+            return;
+          }
+          const headerRow = table.tHead?.rows[0];
+          const storageKey = `dbconsole-table-layout:${window.location.pathname}:${tableIndex}`;
+          const headers = headerRow ? Array.from(headerRow.cells) : [];
+          const savedLayout = (() => {
+            try {
+              return JSON.parse(window.localStorage.getItem(storageKey) || "{}");
+            } catch {
+              return {};
+            }
+          })();
+          table.dataset.enhancedTable = "true";
+
+          const existingToolbar = Array.from(wrap.children).find((child) => child.classList?.contains("table-layout-toolbar"));
+          const toolbar = existingToolbar || document.createElement("div");
+          toolbar.classList.add("table-layout-toolbar");
+          const downloadButton = document.createElement("button");
+          downloadButton.className = "icon-button";
+          downloadButton.type = "button";
+          downloadButton.title = "Download table CSV";
+          downloadButton.setAttribute("aria-label", "Download table CSV");
+          downloadButton.innerHTML = downloadIconMarkup;
+          downloadButton.addEventListener("click", () => {
+            downloadTableCsv(table, tableIndex);
+          });
+          const resetButton = document.createElement("button");
+          resetButton.className = "icon-button";
+          resetButton.type = "button";
+          resetButton.title = "Reset table layout";
+          resetButton.setAttribute("aria-label", "Reset table layout");
+          resetButton.innerHTML = resetIconMarkup;
+          resetButton.addEventListener("click", () => {
+            window.localStorage.removeItem(storageKey);
+            headers.forEach((header) => {
+              header.style.width = "";
+            });
+          });
+          toolbar.appendChild(downloadButton);
+          toolbar.appendChild(resetButton);
+          if (!existingToolbar) {
+            wrap.prepend(toolbar);
+          }
+
+          const persistWidths = () => {
+            const widths = headers.map((header) => Math.round(header.getBoundingClientRect().width));
+            window.localStorage.setItem(storageKey, JSON.stringify({widths}));
+          };
+
+          headers.forEach((header, columnIndex) => {
+            if (savedLayout.widths && savedLayout.widths[columnIndex]) {
+              header.style.width = `${savedLayout.widths[columnIndex]}px`;
+            }
+            const originalText = header.textContent.trim();
+            if (originalText) {
+              header.textContent = "";
+              const button = document.createElement("button");
+              button.className = "table-sort-button";
+              button.type = "button";
+              button.innerHTML = `<span>${originalText}</span><span class="table-sort-indicator" aria-hidden="true"></span>`;
+              button.addEventListener("click", () => {
+                const currentDirection = header.dataset.sortDirection === "asc" ? "desc" : "asc";
+                headers.forEach((item) => {
+                  item.dataset.sortDirection = "";
+                  const indicator = item.querySelector(".table-sort-indicator");
+                  if (indicator) {
+                    indicator.textContent = "";
+                  }
+                });
+                header.dataset.sortDirection = currentDirection;
+                button.querySelector(".table-sort-indicator").textContent = currentDirection === "asc" ? "asc" : "desc";
+                Array.from(table.tBodies).forEach((tbody) => {
+                  Array.from(tbody.rows)
+                    .sort((rowA, rowB) => {
+                      const result = compareValues(parseCellValue(rowA, columnIndex), parseCellValue(rowB, columnIndex));
+                      return currentDirection === "asc" ? result : -result;
+                    })
+                    .forEach((row) => tbody.appendChild(row));
+                });
+              });
+              header.appendChild(button);
+            }
+
+            const handle = document.createElement("span");
+            handle.className = "table-resize-handle";
+            handle.setAttribute("aria-hidden", "true");
+            handle.addEventListener("pointerdown", (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              const startX = event.clientX;
+              const startWidth = header.getBoundingClientRect().width;
+              handle.setPointerCapture(event.pointerId);
+              const onMove = (moveEvent) => {
+                const nextWidth = Math.max(80, startWidth + moveEvent.clientX - startX);
+                header.style.width = `${nextWidth}px`;
+              };
+              const onUp = () => {
+                persistWidths();
+                handle.removeEventListener("pointermove", onMove);
+                handle.removeEventListener("pointerup", onUp);
+                handle.removeEventListener("pointercancel", onUp);
+              };
+              handle.addEventListener("pointermove", onMove);
+              handle.addEventListener("pointerup", onUp);
+              handle.addEventListener("pointercancel", onUp);
+            });
+            header.appendChild(handle);
+          });
+        });
+      })();
+    </script>
+    {% endif %}
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

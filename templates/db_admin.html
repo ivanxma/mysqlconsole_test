@@ -1,0 +1,1248 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header">
+  <p class="eyebrow">MySQL</p>
+  <h2>DB Admin</h2>
+  <p>Create databases, inspect table definitions, manage scheduler events, and browse live rows from the connected server.</p>
+</section>
+
+<section class="tab-shell">
+  <div class="tab-bar" role="tablist" aria-label="DB Admin tabs">
+    <a
+      class="tab-link {% if db_admin_tab == 'create' %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if db_admin_tab == 'create' else 'false' }}"
+      href="{{ url_for('db_admin_page', db_admin_tab='create', database=selected_database, table=selected_table) }}"
+    >
+      Create Database
+    </a>
+    <a
+      class="tab-link {% if db_admin_tab == 'select' %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if db_admin_tab == 'select' else 'false' }}"
+      href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=selected_table) }}"
+    >
+      Select Database and Table
+    </a>
+    <a
+      class="tab-link {% if db_admin_tab == 'event' %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if db_admin_tab == 'event' else 'false' }}"
+      href="{{ url_for('db_admin_page', db_admin_tab='event', database=selected_database, table=selected_table) }}"
+    >
+      Event
+    </a>
+    <a
+      class="tab-link {% if db_admin_tab == 'charset-collation' %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if db_admin_tab == 'charset-collation' else 'false' }}"
+      href="{{ url_for('db_admin_page', db_admin_tab='charset-collation', database=selected_database) }}"
+    >
+      Charset / Collation
+    </a>
+    <a
+      class="tab-link {% if db_admin_tab == 'missing-primary-key' %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if db_admin_tab == 'missing-primary-key' else 'false' }}"
+      href="{{ url_for('db_admin_page', db_admin_tab='missing-primary-key', database=selected_database, table=selected_table) }}"
+    >
+      Tables Without Primary Key
+    </a>
+  </div>
+</section>
+
+{% if db_admin_tab != 'select' %}
+<section class="panel">
+  {% if db_admin_tab == 'create' %}
+  <div class="panel-header">
+    <div>
+      <h3>Create Database</h3>
+      <span class="helper-text">Create a new schema on the connected MySQL server.</span>
+    </div>
+  </div>
+  <form method="post" class="form-grid">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="db_admin_tab" value="create">
+    <input type="hidden" name="db_action" value="create_database">
+    <label>
+      Database Name
+      <input name="database_name" type="text" placeholder="example_db">
+    </label>
+    <div class="form-actions">
+      <button class="button primary" type="submit">Create Database</button>
+    </div>
+  </form>
+  {% elif db_admin_tab == 'missing-primary-key' %}
+  <div class="panel-header">
+    <div>
+      <h3>Tables Without Primary Key</h3>
+      <span class="helper-text">Review non-system base tables that do not currently expose a PRIMARY KEY and apply the requested repair strategy.</span>
+    </div>
+  </div>
+  <div class="count-summary-grid">
+    <article class="count-link-card">
+      <span class="count-link-value">{{ missing_primary_key_report.table_count }}</span>
+      <span class="count-link-helper">Tables without PRIMARY KEY</span>
+    </article>
+    <article class="count-link-card">
+      <span class="count-link-value">{{ missing_primary_key_report.auto_increment_fix_count }}</span>
+      <span class="count-link-helper">Reuse existing AUTO_INCREMENT</span>
+    </article>
+    <article class="count-link-card">
+      <span class="count-link-value">{{ missing_primary_key_report.invisible_row_id_fix_count }}</span>
+      <span class="count-link-helper">Add invisible <code>my_row_id</code></span>
+    </article>
+    <article class="count-link-card">
+      <span class="count-link-value">{{ missing_primary_key_report.manual_review_count }}</span>
+      <span class="count-link-helper">Manual review required</span>
+    </article>
+  </div>
+  {% if missing_primary_key_report.error %}
+  <p class="helper-text error-text">{{ missing_primary_key_report.error }}</p>
+  {% else %}
+  <p class="helper-text">If a table already has an <code>AUTO_INCREMENT</code> column, the fix adds a PRIMARY KEY on that column. Otherwise it adds invisible column <code>my_row_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT</code> and makes it the PRIMARY KEY.</p>
+  <form method="post" class="db-admin-missing-pk-form" data-missing-pk-selection-form onsubmit="return confirm('Apply the primary-key fix to the selected eligible tables?');">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="db_admin_tab" value="missing-primary-key">
+    <div class="table-wrap">
+      <div class="table-layout-toolbar db-admin-missing-pk-toolbar">
+        <label class="checkbox-field db-admin-missing-pk-select-all">
+          <input type="checkbox" data-missing-pk-select-all {% if not missing_primary_key_report.fixable_table_count %}disabled{% endif %}>
+          <span>Select all</span>
+        </label>
+        <button
+          class="icon-button db-admin-missing-pk-action"
+          type="submit"
+          name="db_action"
+          value="fix_missing_primary_key_selected"
+          title="Apply fix to selected tables"
+          aria-label="Apply fix to selected tables"
+          data-missing-pk-selection-action
+          {% if not missing_primary_key_report.fixable_table_count %}disabled{% endif %}
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M20 6 9 17l-5-5"></path>
+          </svg>
+        </button>
+        <span class="helper-text db-admin-missing-pk-selection-text" data-missing-pk-selection-count>0 selected</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Select</th>
+            <th>Database</th>
+            <th>Table</th>
+            <th>Engine</th>
+            <th>Rows</th>
+            <th>AUTO_INCREMENT Column</th>
+            <th>Fix Plan</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in missing_primary_key_report.rows %}
+          <tr>
+            <td>
+              <input
+                type="checkbox"
+                name="selected_missing_primary_key"
+                value="{{ row.database_name }}.{{ row.table_name }}"
+                data-missing-pk-select-row
+                {% if not row.is_fixable %}disabled{% endif %}
+              >
+            </td>
+            <td>{{ row.database_name }}</td>
+            <td>{{ row.table_name }}</td>
+            <td>{{ row.engine }}</td>
+            <td>{{ row.row_count }}</td>
+            <td>{{ row.auto_increment_column_name or '-' }}</td>
+            <td>{{ row.fix_method_label }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="7">Every non-system base table already has a PRIMARY KEY.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </form>
+  {% endif %}
+  {% elif db_admin_tab == 'event' %}
+  <div class="panel-header">
+    <div>
+      <h3>Event List</h3>
+      <span class="helper-text">Review user-schema scheduler events, then enable or disable the selected rows with the toolbar.</span>
+    </div>
+  </div>
+  {% if event_error %}
+  <p class="helper-text error-text">{{ event_error }}</p>
+  {% else %}
+  <form method="post" class="db-admin-event-list-form" data-event-selection-form>
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="db_admin_tab" value="event">
+    <div class="table-wrap">
+      <div class="table-layout-toolbar db-admin-event-toolbar">
+        <label class="checkbox-field db-admin-event-select-all">
+          <input type="checkbox" data-event-select-all {% if not event_rows %}disabled{% endif %}>
+          <span>Select all</span>
+        </label>
+        <button
+          class="icon-button db-admin-event-action"
+          type="submit"
+          name="db_action"
+          value="enable_events"
+          title="Enable selected events"
+          aria-label="Enable selected events"
+          data-event-selection-action
+          {% if not event_rows %}disabled{% endif %}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 12l4 4 10-10"></path>
+          </svg>
+        </button>
+        <button
+          class="icon-button db-admin-event-action"
+          type="submit"
+          name="db_action"
+          value="disable_events"
+          title="Disable selected events"
+          aria-label="Disable selected events"
+          data-event-selection-action
+          {% if not event_rows %}disabled{% endif %}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 12h14"></path>
+          </svg>
+        </button>
+        <button
+          class="icon-button db-admin-event-action"
+          type="submit"
+          name="db_action"
+          value="delete_events"
+          title="Delete selected events"
+          aria-label="Delete selected events"
+          data-event-selection-action
+          onclick="return confirm('Delete the selected events?');"
+          {% if not event_rows %}disabled{% endif %}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M9 9v8"></path>
+            <path d="M15 9v8"></path>
+            <path d="M4 6h16"></path>
+            <path d="M10 4h4"></path>
+            <path d="M6 6l1 14h10l1-14"></path>
+          </svg>
+        </button>
+        <span class="helper-text db-admin-event-selection-text" data-event-selection-count>0 selected</span>
+      </div>
+      <table class="db-admin-event-table">
+        <thead>
+          <tr>
+            <th>Select</th>
+            <th>Database</th>
+            <th>Event</th>
+            <th>Status</th>
+            <th>Schedule</th>
+            <th>Created</th>
+            <th>Last Altered</th>
+            <th>Last Executed</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in event_rows %}
+          <tr class="{% if row.is_focus %}active-table-row db-admin-event-focus-row{% endif %}">
+            <td>
+              <input type="checkbox" name="selected_event_key" value="{{ row.event_key }}" data-event-select-row>
+            </td>
+            <td>{{ row.database_name }}</td>
+            <td><strong>{{ row.event_name }}</strong></td>
+            <td>
+              <span class="event-status-badge {% if row.is_enabled %}event-status-enabled{% else %}event-status-disabled{% endif %}">
+                {{ row.status_label }}
+              </span>
+            </td>
+            <td>{{ row.schedule_label }}</td>
+            <td>{{ row.created }}</td>
+            <td>{{ row.last_altered }}</td>
+            <td>{{ row.last_executed }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="8">No user-schema events were returned.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </form>
+  {% endif %}
+  {% elif db_admin_tab == 'charset-collation' %}
+  <div class="panel-header">
+    <div>
+      <h3>Charset / Collation</h3>
+      <span class="helper-text">Review table defaults and character columns that differ from each table collation.</span>
+    </div>
+  </div>
+  <form method="get" class="form-grid compact-form">
+    <input type="hidden" name="db_admin_tab" value="charset-collation">
+    <label>
+      Database
+      <select name="database" onchange="this.form.submit()">
+        <option value="">Choose a database</option>
+        {% for row in database_inventory %}
+        {% if not row.is_system %}
+        <option value="{{ row.database_name }}" {% if row.database_name == selected_database %}selected{% endif %}>
+          {{ row.database_name }}
+        </option>
+        {% endif %}
+        {% endfor %}
+      </select>
+    </label>
+  </form>
+  {% if charset_collation_report.error %}
+  <p class="helper-text error-text">{{ charset_collation_report.error }}</p>
+  {% elif not selected_database %}
+  <p class="helper-text">Choose a database to inspect table and column charset/collation metadata.</p>
+  {% else %}
+  <div class="count-summary-grid">
+    <article class="count-link-card">
+      <span class="count-link-value">{{ charset_collation_report.table_count }}</span>
+      <span class="count-link-helper">Base tables</span>
+    </article>
+    <article class="count-link-card">
+      <span class="count-link-value">{{ charset_collation_report.text_column_count }}</span>
+      <span class="count-link-helper">Character columns</span>
+    </article>
+    <article class="count-link-card">
+      <span class="count-link-value">{{ charset_collation_report.column_difference_count }}</span>
+      <span class="count-link-helper">Column differences</span>
+    </article>
+  </div>
+  <form method="post" data-charset-collation-form>
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="db_admin_tab" value="charset-collation">
+    <input type="hidden" name="database_name" value="{{ selected_database }}">
+    <div class="form-grid compact-form">
+      <label>
+        Target Character Set
+        <select name="target_charset" required data-charset-select>
+          <option value="">Choose a character set</option>
+          {% for option in charset_collation_options.charsets %}
+          <option value="{{ option.charset_name }}" data-default-collation="{{ option.default_collation }}" {% if option.charset_name == charset_collation_form.target_charset %}selected{% endif %}>
+            {{ option.charset_name }}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Target Collation
+        <select name="target_collation" required data-collation-select>
+          <option value="">Use character-set default</option>
+          {% for option in charset_collation_options.collations %}
+          <option value="{{ option.collation_name }}" data-charset="{{ option.charset_name }}" {% if option.collation_name == charset_collation_form.target_collation %}selected{% endif %}>
+            {{ option.collation_name }}{% if option.is_default %} (default){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Foreign Key Checks
+        <select name="foreign_key_checks">
+          <option value="on" {% if charset_collation_form.foreign_key_checks != 'off' %}selected{% endif %}>ON</option>
+          <option value="off" {% if charset_collation_form.foreign_key_checks == 'off' %}selected{% endif %}>OFF during execution</option>
+        </select>
+      </label>
+      <label class="checkbox-field">
+        <input type="checkbox" name="drop_foreign_keys" value="1" {% if charset_collation_form.drop_foreign_keys %}checked{% endif %}>
+        <span>Drop outgoing foreign keys touching selected changes</span>
+      </label>
+    </div>
+    {% if charset_collation_preview %}
+    <section class="db-admin-charset-preview">
+      <div class="panel-header panel-header-tight">
+        <div>
+          <h3>Preview</h3>
+          <span class="helper-text">Review the generated SQL before running the charset/collation update.</span>
+        </div>
+      </div>
+      <dl class="detail-list">
+        <div>
+          <dt>Target</dt>
+          <dd>{{ charset_collation_preview.target_charset }} / {{ charset_collation_preview.target_collation }}</dd>
+        </div>
+        <div>
+          <dt>Selected</dt>
+          <dd>{{ charset_collation_preview.selected_table_count }} table(s), {{ charset_collation_preview.selected_column_count }} column(s)</dd>
+        </div>
+        <div>
+          <dt>Foreign Keys</dt>
+          <dd>{{ charset_collation_preview.foreign_key_definitions|length }} drop/recreate pair(s)</dd>
+        </div>
+      </dl>
+      {% if charset_collation_preview.drop_statements %}
+      <h4>Drop Foreign Keys</h4>
+      <pre class="sql-block">{{ charset_collation_preview.drop_statements|join(';\n') }};</pre>
+      {% endif %}
+      <h4>Charset / Collation Changes</h4>
+      <pre class="sql-block">{{ charset_collation_preview.alter_statements|join(';\n') }};</pre>
+      {% if charset_collation_preview.recreate_statements %}
+      <h4>Recreate Foreign Keys</h4>
+      <pre class="sql-block">{{ charset_collation_preview.recreate_statements|join(';\n') }};</pre>
+      {% endif %}
+      <div class="form-actions db-admin-charset-preview-actions">
+        <button
+          class="button primary"
+          type="submit"
+          name="db_action"
+          value="download_charset_collation_script"
+        >
+          Download Generated Script
+        </button>
+      </div>
+    </section>
+    {% endif %}
+    <div class="table-wrap">
+      <div class="table-layout-toolbar db-admin-charset-toolbar">
+        <div class="db-admin-charset-left-actions">
+          <label class="checkbox-field db-admin-charset-select-all">
+            <input type="checkbox" data-charset-table-select-all {% if not charset_collation_report.rows %}disabled{% endif %}>
+            <span>Select all tables</span>
+          </label>
+          <div class="db-admin-charset-actions">
+            <button
+              class="button primary"
+              type="submit"
+              name="db_action"
+              value="preview_charset_collation"
+              data-charset-collation-action
+              {% if not charset_collation_report.rows %}disabled{% endif %}
+            >
+              Preview
+            </button>
+            <button
+              class="button primary"
+              type="submit"
+              name="db_action"
+              value="modify_charset_collation"
+              data-charset-collation-action
+              onclick="return confirm('Apply the selected charset/collation changes? Foreign keys selected for drop will be recreated after the ALTER statements.');"
+              {% if not charset_collation_report.rows %}disabled{% endif %}
+            >
+              Modify Charset / Collation
+            </button>
+          </div>
+        </div>
+        <div class="db-admin-charset-right-actions">
+          <span class="helper-text" data-charset-collation-selection-count>0 selected</span>
+        </div>
+      </div>
+      <table class="db-admin-charset-table">
+        <thead>
+          <tr>
+            <th>Select Table</th>
+            <th>Table</th>
+            <th>Engine</th>
+            <th>Rows</th>
+            <th>Table Charset</th>
+            <th>Table Collation</th>
+            <th>Foreign Keys</th>
+            <th>Character Columns</th>
+            <th>Column Differences</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in charset_collation_report.rows %}
+          <tr>
+            <td>
+              <input type="checkbox" name="selected_charset_table" value="{{ row.table_name }}" data-charset-table-row {% if row.is_selected %}checked{% endif %}>
+            </td>
+            <td><strong>{{ row.table_name }}</strong></td>
+            <td>{{ row.engine }}</td>
+            <td>{{ row.row_count }}</td>
+            <td>{{ row.table_charset }}</td>
+            <td>{{ row.table_collation }}</td>
+            <td>
+              {% set outgoing_count = row.foreign_key_definitions|length %}
+              {% set incoming_count = row.referenced_by_foreign_keys|length %}
+              {% if outgoing_count or incoming_count %}
+              <details>
+                <summary>{{ outgoing_count }} outgoing, {{ incoming_count }} referenced by</summary>
+                {% if outgoing_count %}
+                <strong>Outgoing</strong>
+                <ul class="plain-list">
+                  {% for fk in row.foreign_key_definitions %}
+                  <li><code>{{ fk.create_statement }}</code></li>
+                  {% endfor %}
+                </ul>
+                {% endif %}
+                {% if incoming_count %}
+                <strong>Referenced by</strong>
+                <ul class="plain-list">
+                  {% for fk in row.referenced_by_foreign_keys %}
+                  <li><code>{{ fk.create_statement }}</code></li>
+                  {% endfor %}
+                </ul>
+                {% endif %}
+              </details>
+              {% else %}
+              -
+              {% endif %}
+            </td>
+            <td>{{ row.text_column_count }}</td>
+            <td>
+              {% if row.has_column_differences %}
+              <strong>{{ row.column_difference_count }}</strong>
+              {% else %}
+              -
+              {% endif %}
+            </td>
+          </tr>
+          {% if row.text_columns %}
+          <tr class="db-admin-charset-column-row">
+            <td></td>
+            <td colspan="8">
+              <div class="table-wrap">
+                <table class="db-admin-charset-column-table">
+                  <thead>
+                    <tr>
+                      <th>Select Column</th>
+                      <th>Column</th>
+                      <th>Type</th>
+                      <th>Charset</th>
+                      <th>Collation</th>
+                      <th>Difference</th>
+                      <th>Outgoing FK</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for column in row.text_columns %}
+                    <tr>
+                      <td>
+                        <input
+                          type="checkbox"
+                          name="selected_charset_column"
+                          value="{{ {'table': row.table_name, 'column': column.column_name}|tojson|forceescape }}"
+                          data-charset-column-row
+                          {% if column.is_selected %}checked{% endif %}
+                        >
+                      </td>
+                      <td>{{ column.column_name }}</td>
+                      <td>{{ column.column_type }}</td>
+                      <td>{{ column.charset_name }}</td>
+                      <td>{{ column.collation_name }}</td>
+                      <td>{{ "Differs" if column.differs_from_table else "-" }}</td>
+                      <td>{{ column.outgoing_foreign_keys or "-" }}</td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </td>
+          </tr>
+          {% endif %}
+          {% else %}
+          <tr>
+            <td colspan="9">No base tables were returned for this database.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </form>
+  {% endif %}
+  {% endif %}
+</section>
+{% endif %}
+
+{% if db_admin_tab == 'event' %}
+<section class="panel">
+  <div class="panel-header">
+    <div>
+      <h3>Create Event</h3>
+      <span class="helper-text">Choose the schema, schedule, and SQL body for a new MySQL event. One-time schedules preserve metadata after execution.</span>
+    </div>
+  </div>
+  <form method="post" class="form-grid">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="db_admin_tab" value="event">
+    <input type="hidden" name="db_action" value="create_event">
+    <label>
+      Database *
+      <select name="event_database_name" required>
+        <option value="">Choose a database</option>
+        {% for row in database_inventory %}
+        {% if not row.is_system %}
+        <option value="{{ row.database_name }}" {% if row.database_name == event_form.database_name %}selected{% endif %}>
+          {{ row.database_name }}
+        </option>
+        {% endif %}
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Event Name *
+      <input name="event_name" type="text" value="{{ event_form.event_name }}" placeholder="nightly_cleanup" required>
+    </label>
+    <label>
+      Schedule *
+      <select name="event_schedule_name" required data-event-schedule-select>
+        {% for option in event_schedule_options %}
+        <option
+          value="{{ option.value }}"
+          data-requires-at="{{ 'true' if option.requires_at else 'false' }}"
+          {% if option.value == event_form.schedule_name %}selected{% endif %}
+        >
+          {{ option.label }}
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label
+      class="db-admin-event-schedule-field {% if not event_form.schedule_requires_at %}is-hidden{% endif %}"
+      data-event-schedule-at-field
+      {% if not event_form.schedule_requires_at %}hidden{% endif %}
+    >
+      Run At *
+      <input
+        name="event_schedule_at"
+        type="datetime-local"
+        value="{{ event_form.schedule_at }}"
+        {% if event_form.schedule_requires_at %}required{% endif %}
+        data-event-schedule-at-input
+      >
+    </label>
+    <label class="full-span">
+      Event Content *
+      <textarea name="event_body_sql" class="column-definition-editor" rows="8" placeholder="UPDATE reporting.daily_rollup SET refreshed_at = NOW();" required>{{ event_form.body_sql }}</textarea>
+    </label>
+    <p class="helper-text">Recurring schedules start immediately with <code>STARTS CURRENT_TIMESTAMP</code>. The event body can be a single statement or a <code>BEGIN ... END</code> block.</p>
+    <div class="form-actions">
+      <button class="button primary" type="submit">Create Event</button>
+    </div>
+    {% if event_action_output %}
+    <div class="full-span db-admin-event-output">
+      <h4>{{ event_action_output.title }}</h4>
+      <div class="flash {{ event_action_output.category }}">{{ event_action_output.message }}</div>
+    </div>
+    {% endif %}
+  </form>
+</section>
+{% endif %}
+
+{% if db_admin_tab == 'select' %}
+<section class="panel">
+  <div class="panel-header db-admin-table-list-header">
+    <div class="db-admin-table-list-controls">
+      <h3>Tables in</h3>
+      <form method="get" class="db-admin-table-database-form">
+        <input type="hidden" name="db_admin_tab" value="select">
+        <label aria-label="Database">
+          <select name="database" onchange="this.form.submit()">
+            <option value="">Choose a database</option>
+            {% for row in database_inventory %}
+            <option value="{{ row.database_name }}" {% if row.database_name == selected_database %}selected{% endif %}>
+              {{ row.database_name }}{% if row.is_system %} (system){% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+      </form>
+      {% if selected_database and selected_database not in ['information_schema', 'mysql', 'performance_schema', 'sys'] %}
+      <form method="post" onsubmit="return confirm('Drop database {{ selected_database }}?');">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="db_admin_tab" value="select">
+        <input type="hidden" name="db_action" value="drop_database">
+        <input type="hidden" name="database_name" value="{{ selected_database }}">
+        <button class="button secondary danger" type="submit">Drop DB</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  <form method="post" data-table-delete-form>
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="db_admin_tab" value="select">
+    <input type="hidden" name="db_action" value="delete_tables">
+    <input type="hidden" name="database_name" value="{{ selected_database }}">
+    <div class="table-wrap">
+      <div class="table-layout-toolbar db-admin-table-delete-toolbar">
+        <div class="db-admin-table-delete-left-actions">
+          <label class="checkbox-field db-admin-table-delete-select-all">
+            <input
+              type="checkbox"
+              data-table-delete-select-all
+              {% if not tables or not selected_database or selected_database in ['information_schema', 'mysql', 'performance_schema', 'sys'] %}disabled{% endif %}
+            >
+            <span>Select all</span>
+          </label>
+          <button
+            class="button secondary danger db-admin-table-delete-action"
+            type="submit"
+            data-table-delete-action
+            {% if not tables or not selected_database or selected_database in ['information_schema', 'mysql', 'performance_schema', 'sys'] %}disabled{% endif %}
+          >
+            Delete Table(s)
+          </button>
+        </div>
+        <div class="db-admin-table-delete-right-actions">
+          <span class="helper-text" data-table-delete-count>0 selected</span>
+        </div>
+      </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Select</th>
+          <th>Table</th>
+          <th>Table Comment</th>
+          <th>Engine</th>
+          <th>Rows</th>
+          <th>HeatWave</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in tables %}
+        <tr class="{% if row.table_name == selected_table %}active-table-row{% endif %}">
+          <td>
+            <input
+              type="checkbox"
+              name="selected_table"
+              value="{{ row.table_name }}"
+              aria-label="Select {{ row.table_name }} for deletion"
+              data-table-delete-row
+              {% if selected_database in ['information_schema', 'mysql', 'performance_schema', 'sys'] %}disabled{% endif %}
+            >
+          </td>
+          <td>
+            <a
+              class="table-select-link"
+              href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=row.table_name) }}"
+            >
+              {{ row.table_name }}
+            </a>
+          </td>
+          <td>{{ row.table_comment or "-" }}</td>
+          <td>{{ row.engine }}</td>
+          <td>{{ row.row_count }}</td>
+          <td>{{ "Configured" if row.heatwave_configured else "-" }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6">Choose a database to list its tables.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </form>
+</section>
+
+{% if selected_table %}
+<section class="panel">
+  <div class="panel-header">
+    <div>
+      <h3>{{ selected_database }}.{{ selected_table }}</h3>
+      <span class="helper-text">Table metadata, preview, and maintenance actions.</span>
+    </div>
+  </div>
+  {% if selected_table_error %}
+  <div class="flash error">{{ selected_table_error }}</div>
+  {% endif %}
+  <div class="tab-bar" role="tablist" aria-label="Table information sections">
+    <a class="tab-link {% if table_info_tab == 'columns' %}active{% endif %}" role="tab" aria-selected="{{ 'true' if table_info_tab == 'columns' else 'false' }}" href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=selected_table, table_info_tab='columns') }}">Columns</a>
+    <a class="tab-link {% if table_info_tab == 'ddl' %}active{% endif %}" role="tab" aria-selected="{{ 'true' if table_info_tab == 'ddl' else 'false' }}" href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=selected_table, table_info_tab='ddl') }}">DDL</a>
+    <a class="tab-link {% if table_info_tab == 'indexes' %}active{% endif %}" role="tab" aria-selected="{{ 'true' if table_info_tab == 'indexes' else 'false' }}" href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=selected_table, table_info_tab='indexes') }}">Indexes</a>
+    <a class="tab-link {% if table_info_tab == 'partitions' %}active{% endif %}" role="tab" aria-selected="{{ 'true' if table_info_tab == 'partitions' else 'false' }}" href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=selected_table, table_info_tab='partitions') }}">Partitions</a>
+    <a class="tab-link {% if table_info_tab == 'preview' %}active{% endif %}" role="tab" aria-selected="{{ 'true' if table_info_tab == 'preview' else 'false' }}" href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=selected_table, table_info_tab='preview') }}">Preview</a>
+    <a class="tab-link {% if table_info_tab == 'modify-columns' %}active{% endif %}" role="tab" aria-selected="{{ 'true' if table_info_tab == 'modify-columns' else 'false' }}" href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=selected_table, table_info_tab='modify-columns') }}">Modify Columns</a>
+  </div>
+
+  {% if table_info_tab == 'columns' %}
+  <h3>Column Metadata</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Column</th>
+          <th>Column Comment</th>
+          <th>Type</th>
+          <th>Nullable</th>
+          <th>Key</th>
+          <th>Extra</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in columns %}
+        <tr>
+          <td>{{ row.column_name }}</td>
+          <td>{{ row.column_comment or "-" }}</td>
+          <td>{{ row.column_type }}</td>
+          <td>{{ row.is_nullable }}</td>
+          <td>{{ row.column_key or "-" }}</td>
+          <td>{{ row.extra or "-" }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6">No column metadata available.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% elif table_info_tab == 'ddl' %}
+  <h3>CREATE TABLE</h3>
+  {% if ddl_statement %}
+  <pre class="sql-block">{{ ddl_statement }}</pre>
+  {% else %}
+  <p class="helper-text">The table definition is unavailable.</p>
+  {% endif %}
+  {% elif table_info_tab == 'indexes' %}
+  <h3>Indexes</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Index</th>
+          <th>Unique</th>
+          <th>Type</th>
+          <th>Visible</th>
+          <th>Columns</th>
+          <th>Cardinality</th>
+          <th>Comment</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in indexes %}
+        <tr>
+          <td>{{ row.index_name }}</td>
+          <td>{{ "Yes" if row.is_unique else "No" }}</td>
+          <td>{{ row.index_type }}</td>
+          <td>{{ row.is_visible }}</td>
+          <td>{{ row.columns|join(", ") }}</td>
+          <td>{{ row.cardinality }}</td>
+          <td>{{ row.index_comment }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="7">No index metadata available.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% elif table_info_tab == 'partitions' %}
+  <div class="panel-header">
+    <h3>Partitions</h3>
+    {% if partitions.is_partitioned %}
+    <span class="helper-text">{{ partitions.partition_count }} partitions</span>
+    {% endif %}
+  </div>
+  {% if not partitions.is_partitioned %}
+  <p class="helper-text">The selected table is not partitioned.</p>
+  {% else %}
+  <div class="split-layout split-layout-top">
+    <article>
+      <dl class="detail-list">
+        <div>
+          <dt>Partition Method</dt>
+          <dd>{{ partitions.partition_method }}</dd>
+        </div>
+        <div>
+          <dt>Partition Expression</dt>
+          <dd>{{ partitions.partition_expression }}</dd>
+        </div>
+      </dl>
+    </article>
+    <article>
+      <dl class="detail-list">
+        <div>
+          <dt>Subpartition Method</dt>
+          <dd>{{ partitions.subpartition_method }}</dd>
+        </div>
+        <div>
+          <dt>Subpartition Expression</dt>
+          <dd>{{ partitions.subpartition_expression }}</dd>
+        </div>
+      </dl>
+    </article>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Partition</th>
+          <th>Subpartition</th>
+          <th>Description</th>
+          <th>Rows</th>
+          <th>Data Length</th>
+          <th>Index Length</th>
+          <th>Data Free</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in partitions.rows %}
+        <tr>
+          <td>{{ row.partition_name }}</td>
+          <td>{{ row.subpartition_name }}</td>
+          <td>{{ row.partition_description }}</td>
+          <td>{{ row.table_rows }}</td>
+          <td>{{ row.data_length }}</td>
+          <td>{{ row.index_length }}</td>
+          <td>{{ row.data_free }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  {% elif table_info_tab == 'preview' %}
+  <div class="panel-header">
+    <h3>Table Preview</h3>
+    {% if preview.total_rows %}
+    <span class="helper-text">{{ preview.total_rows }} total rows</span>
+    {% endif %}
+  </div>
+  {% if preview.masked_columns %}
+  <p class="helper-text">
+    Raw preview is hidden for non-display-safe columns:
+    {% for column in preview.masked_columns %}
+    <span>{{ column.column_name }} ({{ column.column_type }}){% if not loop.last %}, {% endif %}</span>
+    {% endfor %}
+  </p>
+  {% endif %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          {% for column in preview.columns %}
+          <th>{{ column }}</th>
+          {% else %}
+          <th>No columns</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in preview.rows %}
+        <tr>
+          {% for column in preview.columns %}
+          <td>{{ row[column] }}</td>
+          {% endfor %}
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="{{ preview.columns|length if preview.columns else 1 }}">No preview rows available.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="pager">
+    {% if preview.has_previous %}
+    <a class="button secondary" href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=selected_table, table_info_tab='preview', page=preview.page - 1) }}">Previous</a>
+    {% endif %}
+    <span>Page {{ preview.page }}</span>
+    {% if preview.has_next %}
+    <a class="button secondary" href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=selected_table, table_info_tab='preview', page=preview.page + 1) }}">Next</a>
+    {% endif %}
+  </div>
+  {% elif table_info_tab == 'modify-columns' %}
+  <div class="panel-header">
+    <div>
+      <h3>Modify Column Definitions</h3>
+      <span class="helper-text">{{ selected_database }}.{{ selected_table }}</span>
+    </div>
+  </div>
+    <p class="helper-text">Edit the column name, the SQL definition fragment after the name, and the optional comments. This keeps datatype parameters like <code>decimal(10,2)</code>, <code>varchar(255)</code>, or multi-value type definitions intact while generating the required <code>ALTER TABLE</code> clauses.</p>
+    {% if column_edit_unsupported_columns %}
+    <p class="helper-text error-text">Unable to load the current SHOW CREATE TABLE definition for: {{ column_edit_unsupported_columns|join(', ') }}.</p>
+    {% endif %}
+    {% set modifiable_column_rows = column_edit_rows|selectattr('supports_modify')|list %}
+    <form method="post" class="form-grid">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="db_admin_tab" value="select">
+      <input type="hidden" name="db_action" value="modify_table_columns">
+      <input type="hidden" name="database_name" value="{{ selected_database }}">
+      <input type="hidden" name="table_name" value="{{ selected_table }}">
+      <label class="full-span">
+        Table Comment
+        <textarea name="table_comment" rows="3">{{ table_edit_comment }}</textarea>
+      </label>
+      <div class="table-wrap full-span">
+        <table class="db-admin-edit-table">
+          <thead>
+            <tr>
+              <th>Current Column</th>
+              <th>Column Name</th>
+              <th>Column Definition</th>
+              <th>Column Comment</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in column_edit_rows %}
+            <tr>
+              <td>
+                <strong>{{ row.source_column_name }}</strong>
+                <div class="helper-text">{{ row.column_type }}{% if row.extra %} • {{ row.extra }}{% endif %}</div>
+                <div class="helper-text">Comment: {{ row.current_comment or "-" }}</div>
+              </td>
+              <td>
+                {% if row.supports_modify %}
+                <input type="hidden" name="source_column_name" value="{{ row.source_column_name }}">
+                <input name="new_column_name" type="text" value="{{ row.edited_column_name }}">
+                {% else %}
+                <input type="text" value="{{ row.edited_column_name }}" disabled>
+                {% endif %}
+              </td>
+              <td>
+                {% if row.supports_modify %}
+                <textarea class="column-definition-editor" name="column_definition" rows="3">{{ row.edited_definition }}</textarea>
+                {% else %}
+                <textarea class="column-definition-editor" rows="3" disabled>{{ row.edited_definition or "Current definition unavailable from SHOW CREATE TABLE." }}</textarea>
+                {% endif %}
+              </td>
+              <td>
+                {% if row.supports_modify %}
+                <input name="column_comment" type="text" value="{{ row.edited_comment }}">
+                {% else %}
+                <input type="text" value="{{ row.current_comment }}" disabled>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="4">Choose a table to edit its column definitions.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="form-actions">
+        <button class="button primary" type="submit" {% if not modifiable_column_rows %}disabled{% endif %}>Update</button>
+        <a class="button secondary" href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=selected_table, table_info_tab='columns') }}">Cancel</a>
+      </div>
+    </form>
+  {% endif %}
+</section>
+{% else %}
+<section class="panel">
+  <p class="helper-text">Choose a table from the selected database to inspect table details.</p>
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (() => {
+    const missingPkSelectionForm = document.querySelector("[data-missing-pk-selection-form]");
+    if (missingPkSelectionForm) {
+      const selectAllCheckbox = missingPkSelectionForm.querySelector("[data-missing-pk-select-all]");
+      const rowCheckboxes = Array.from(missingPkSelectionForm.querySelectorAll("[data-missing-pk-select-row]:not(:disabled)"));
+      const actionButtons = Array.from(missingPkSelectionForm.querySelectorAll("[data-missing-pk-selection-action]"));
+      const countLabels = Array.from(missingPkSelectionForm.querySelectorAll("[data-missing-pk-selection-count]"));
+
+      const syncMissingPkSelectionState = () => {
+        const checkedCount = rowCheckboxes.filter((checkbox) => checkbox.checked).length;
+        if (selectAllCheckbox) {
+          selectAllCheckbox.checked = rowCheckboxes.length > 0 && checkedCount === rowCheckboxes.length;
+          selectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < rowCheckboxes.length;
+        }
+        actionButtons.forEach((button) => {
+          button.disabled = checkedCount === 0;
+        });
+        countLabels.forEach((label) => {
+          label.textContent = `${checkedCount} selected`;
+        });
+      };
+
+      if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener("change", () => {
+          rowCheckboxes.forEach((checkbox) => {
+            checkbox.checked = selectAllCheckbox.checked;
+          });
+          syncMissingPkSelectionState();
+        });
+      }
+
+      rowCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener("change", syncMissingPkSelectionState);
+      });
+
+      syncMissingPkSelectionState();
+    }
+
+    const eventSelectionForm = document.querySelector("[data-event-selection-form]");
+    if (eventSelectionForm) {
+      const selectAllCheckbox = eventSelectionForm.querySelector("[data-event-select-all]");
+      const rowCheckboxes = Array.from(eventSelectionForm.querySelectorAll("[data-event-select-row]"));
+      const actionButtons = Array.from(eventSelectionForm.querySelectorAll("[data-event-selection-action]"));
+      const countLabels = Array.from(eventSelectionForm.querySelectorAll("[data-event-selection-count]"));
+
+      const syncEventSelectionState = () => {
+        const checkedCount = rowCheckboxes.filter((checkbox) => checkbox.checked).length;
+        if (selectAllCheckbox) {
+          selectAllCheckbox.checked = rowCheckboxes.length > 0 && checkedCount === rowCheckboxes.length;
+          selectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < rowCheckboxes.length;
+        }
+        actionButtons.forEach((button) => {
+          button.disabled = checkedCount === 0;
+        });
+        countLabels.forEach((label) => {
+          label.textContent = `${checkedCount} selected`;
+        });
+      };
+
+      if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener("change", () => {
+          rowCheckboxes.forEach((checkbox) => {
+            checkbox.checked = selectAllCheckbox.checked;
+          });
+          syncEventSelectionState();
+        });
+      }
+
+      rowCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener("change", syncEventSelectionState);
+      });
+
+      syncEventSelectionState();
+    }
+
+    const charsetCollationForm = document.querySelector("[data-charset-collation-form]");
+    if (charsetCollationForm) {
+      const charsetSelect = charsetCollationForm.querySelector("[data-charset-select]");
+      const collationSelect = charsetCollationForm.querySelector("[data-collation-select]");
+      const tableSelectAll = charsetCollationForm.querySelector("[data-charset-table-select-all]");
+      const tableCheckboxes = Array.from(charsetCollationForm.querySelectorAll("[data-charset-table-row]"));
+      const columnCheckboxes = Array.from(charsetCollationForm.querySelectorAll("[data-charset-column-row]"));
+      const actionButtons = Array.from(charsetCollationForm.querySelectorAll("[data-charset-collation-action]"));
+      const countLabels = Array.from(charsetCollationForm.querySelectorAll("[data-charset-collation-selection-count]"));
+
+      const syncCharsetCollationSelectionState = () => {
+        const checkedTableCount = tableCheckboxes.filter((checkbox) => checkbox.checked).length;
+        const checkedColumnCount = columnCheckboxes.filter((checkbox) => checkbox.checked).length;
+        const checkedCount = checkedTableCount + checkedColumnCount;
+        if (tableSelectAll) {
+          tableSelectAll.checked = tableCheckboxes.length > 0 && checkedTableCount === tableCheckboxes.length;
+          tableSelectAll.indeterminate = checkedTableCount > 0 && checkedTableCount < tableCheckboxes.length;
+        }
+        actionButtons.forEach((button) => {
+          button.disabled = checkedCount === 0;
+        });
+        countLabels.forEach((label) => {
+          label.textContent = `${checkedTableCount} table(s), ${checkedColumnCount} column(s) selected`;
+        });
+      };
+
+      const syncCollationOptions = () => {
+        if (!charsetSelect || !collationSelect) {
+          return;
+        }
+        const selectedCharset = charsetSelect.value;
+        const selectedCharsetOption = charsetSelect.options[charsetSelect.selectedIndex];
+        const defaultCollation = selectedCharsetOption ? selectedCharsetOption.dataset.defaultCollation : "";
+        let visibleSelected = false;
+        Array.from(collationSelect.options).forEach((option) => {
+          if (!option.value) {
+            option.hidden = false;
+            return;
+          }
+          const visible = option.dataset.charset === selectedCharset;
+          option.hidden = !visible;
+          if (!visible && option.selected) {
+            option.selected = false;
+          }
+          if (visible && option.selected) {
+            visibleSelected = true;
+          }
+        });
+        if (!visibleSelected && defaultCollation) {
+          const defaultOption = Array.from(collationSelect.options).find((option) => option.value === defaultCollation);
+          if (defaultOption) {
+            defaultOption.selected = true;
+          }
+        }
+      };
+
+      if (tableSelectAll) {
+        tableSelectAll.addEventListener("change", () => {
+          tableCheckboxes.forEach((checkbox) => {
+            checkbox.checked = tableSelectAll.checked;
+          });
+          syncCharsetCollationSelectionState();
+        });
+      }
+      tableCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener("change", syncCharsetCollationSelectionState);
+      });
+      columnCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener("change", syncCharsetCollationSelectionState);
+      });
+      if (charsetSelect) {
+        charsetSelect.addEventListener("change", syncCollationOptions);
+      }
+      syncCollationOptions();
+      syncCharsetCollationSelectionState();
+    }
+
+    const tableDeleteForm = document.querySelector("[data-table-delete-form]");
+    if (tableDeleteForm) {
+      const tableDeleteSelectAll = tableDeleteForm.querySelector("[data-table-delete-select-all]");
+      const tableDeleteCheckboxes = Array.from(tableDeleteForm.querySelectorAll("[data-table-delete-row]:not(:disabled)"));
+      const tableDeleteButton = tableDeleteForm.querySelector("[data-table-delete-action]");
+      const tableDeleteCount = tableDeleteForm.querySelector("[data-table-delete-count]");
+      const syncTableDeleteState = () => {
+        const checkedCount = tableDeleteCheckboxes.filter((checkbox) => checkbox.checked).length;
+        if (tableDeleteSelectAll) {
+          tableDeleteSelectAll.checked = tableDeleteCheckboxes.length > 0 && checkedCount === tableDeleteCheckboxes.length;
+          tableDeleteSelectAll.indeterminate = checkedCount > 0 && checkedCount < tableDeleteCheckboxes.length;
+        }
+        if (tableDeleteButton) {
+          tableDeleteButton.disabled = checkedCount === 0;
+        }
+        if (tableDeleteCount) {
+          tableDeleteCount.textContent = `${checkedCount} selected`;
+        }
+      };
+      if (tableDeleteSelectAll) {
+        tableDeleteSelectAll.addEventListener("change", () => {
+          tableDeleteCheckboxes.forEach((checkbox) => {
+            checkbox.checked = tableDeleteSelectAll.checked;
+          });
+          syncTableDeleteState();
+        });
+      }
+      tableDeleteCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener("change", syncTableDeleteState);
+      });
+      tableDeleteForm.addEventListener("submit", (event) => {
+        const checkedCount = tableDeleteCheckboxes.filter((checkbox) => checkbox.checked).length;
+        if (checkedCount === 0) {
+          event.preventDefault();
+          syncTableDeleteState();
+          return;
+        }
+        if (!confirm("Delete the selected table(s)? This cannot be undone.")) {
+          event.preventDefault();
+        }
+      });
+      syncTableDeleteState();
+    }
+
+    const scheduleSelect = document.querySelector("[data-event-schedule-select]");
+    const scheduleAtField = document.querySelector("[data-event-schedule-at-field]");
+    const scheduleAtInput = document.querySelector("[data-event-schedule-at-input]");
+    if (scheduleSelect && scheduleAtField && scheduleAtInput) {
+      const syncScheduleField = () => {
+        const selectedOption = scheduleSelect.options[scheduleSelect.selectedIndex];
+        const requiresAt = Boolean(selectedOption) && selectedOption.dataset.requiresAt === "true";
+        scheduleAtField.hidden = !requiresAt;
+        scheduleAtField.classList.toggle("is-hidden", !requiresAt);
+        scheduleAtInput.required = requiresAt;
+      };
+
+      scheduleSelect.addEventListener("change", syncScheduleField);
+      syncScheduleField();
+    }
+  })();
+</script>
+{% endblock %}
