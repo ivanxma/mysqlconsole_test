@@ -2,7 +2,7 @@
 set -euo pipefail
 
 APP_TITLE="${APP_TITLE:-MySQL DBConsole}"
-APP_REPO="${APP_REPO:-https://github.com/ivanxma/mysqlconsole_test.git}"
+APP_REPO="${APP_REPO:-https://github.com/ivanxma/mysqlconsole.git}"
 APP_USER="${APP_USER:-opc}"
 APP_GROUP="${APP_GROUP:-$APP_USER}"
 APP_DIR="${APP_DIR:-/home/$APP_USER/mysqlconsole}"
