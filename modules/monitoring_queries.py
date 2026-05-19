@@ -4,12 +4,14 @@ from datetime import datetime, timezone
 
 _execute_query = None
 _quote_identifier = None
+_mysql_connection = None
 
 
-def configure_monitoring_queries(*, execute_query, quote_identifier):
-    global _execute_query, _quote_identifier
+def configure_monitoring_queries(*, execute_query, quote_identifier, mysql_connection):
+    global _execute_query, _quote_identifier, _mysql_connection
     _execute_query = execute_query
     _quote_identifier = quote_identifier
+    _mysql_connection = mysql_connection
 
 
 def execute_query(*args, **kwargs):
@@ -22,6 +24,12 @@ def quote_identifier(*args, **kwargs):
     if _quote_identifier is None:
         raise RuntimeError("monitoring query dependencies are not configured")
     return _quote_identifier(*args, **kwargs)
+
+
+def mysql_connection(*args, **kwargs):
+    if _mysql_connection is None:
+        raise RuntimeError("monitoring query dependencies are not configured")
+    return _mysql_connection(*args, **kwargs)
 
 
 def run_report_query(sql, params=None, *, database=None):

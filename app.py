@@ -775,6 +775,7 @@ def execute_query(sql, params=None, *, database=None, use_secondary_engine=""):
 configure_monitoring_queries(
     execute_query=execute_query,
     quote_identifier=quote_identifier,
+    mysql_connection=mysql_connection,
 )
 
 
@@ -834,6 +835,7 @@ configure_db_admin_queries(
     get_event_schedule_option=get_event_schedule_option,
     quote_identifier=quote_identifier,
     quote_sql_string=quote_sql_string,
+    mysql_connection=mysql_connection,
     db_admin_preview_masked_base_types=DB_ADMIN_PREVIEW_MASKED_BASE_TYPES,
 )
 
