@@ -47,7 +47,13 @@ def build_monitoring_report_page(
 
 
 def build_monitoring_report_download(fetcher, filename, *, fetch_kwargs=None):
-    report = fetcher(**(fetch_kwargs or {}))
+    try:
+        report = fetcher(**(fetch_kwargs or {}))
+    except Exception as error:
+        report = {
+            "columns": ["error"],
+            "rows": [{"error": str(error)}],
+        }
     return {
         "filename": filename,
         "columns": report["columns"],
