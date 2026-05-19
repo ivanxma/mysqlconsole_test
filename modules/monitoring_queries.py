@@ -2121,15 +2121,25 @@ def build_monitoring_dashboard_context():
     }
 
 
-def build_monitoring_locks_context():
-    row_lock_schema = str(request.args.get("row_lock_schema", "")).strip()
-    row_lock_table = str(request.args.get("row_lock_table", "")).strip()
-    row_blocking_connection_id = _coerce_int(request.args.get("row_blocking_connection_id", ""))
-    row_waiting_connection_id = _coerce_int(request.args.get("row_waiting_connection_id", ""))
-    mdl_schema = str(request.args.get("mdl_schema", "")).strip()
-    mdl_name = str(request.args.get("mdl_name", "")).strip()
-    mdl_owner_connection_id = _coerce_int(request.args.get("mdl_owner_connection_id", ""))
-    lock_focus = str(request.args.get("lock_focus", "row")).strip().lower()
+def build_monitoring_locks_context(
+    *,
+    row_lock_schema="",
+    row_lock_table="",
+    row_blocking_connection_id=None,
+    row_waiting_connection_id=None,
+    mdl_schema="",
+    mdl_name="",
+    mdl_owner_connection_id=None,
+    lock_focus="row",
+):
+    row_lock_schema = str(row_lock_schema or "").strip()
+    row_lock_table = str(row_lock_table or "").strip()
+    row_blocking_connection_id = _coerce_int(row_blocking_connection_id)
+    row_waiting_connection_id = _coerce_int(row_waiting_connection_id)
+    mdl_schema = str(mdl_schema or "").strip()
+    mdl_name = str(mdl_name or "").strip()
+    mdl_owner_connection_id = _coerce_int(mdl_owner_connection_id)
+    lock_focus = str(lock_focus or "row").strip().lower()
     if lock_focus not in {"row", "meta"}:
         lock_focus = "row"
 
