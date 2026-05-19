@@ -849,6 +849,7 @@ configure_dashboard_queries(
     quote_identifier=quote_identifier,
     is_system_schema_name=is_system_schema_name,
     build_dashboard_heatwave_summary=module_build_dashboard_heatwave_summary,
+    get_session_profile=get_session_profile,
 )
 
 

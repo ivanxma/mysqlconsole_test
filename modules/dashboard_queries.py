@@ -22,6 +22,7 @@ _empty_replication_overview_info = None
 _quote_identifier = None
 _is_system_schema_name = None
 _module_build_dashboard_heatwave_summary = None
+_get_session_profile = None
 
 
 def _format_bytes(value):
@@ -60,11 +61,12 @@ def configure_dashboard_queries(
     quote_identifier,
     is_system_schema_name,
     build_dashboard_heatwave_summary,
+    get_session_profile,
 ):
     global _execute_query, _fetch_scalar, _fetch_table_column_lookup, _fetch_table_column_names
     global _fetch_full_table_report, _run_report_query
     global _fetch_replication_overview_info, _empty_replication_overview_info, _quote_identifier
-    global _is_system_schema_name, _module_build_dashboard_heatwave_summary
+    global _is_system_schema_name, _module_build_dashboard_heatwave_summary, _get_session_profile
     _execute_query = execute_query
     _fetch_scalar = fetch_scalar
     _fetch_table_column_lookup = fetch_table_column_lookup
@@ -76,12 +78,19 @@ def configure_dashboard_queries(
     _quote_identifier = quote_identifier
     _is_system_schema_name = is_system_schema_name
     _module_build_dashboard_heatwave_summary = build_dashboard_heatwave_summary
+    _get_session_profile = get_session_profile
 
 
 def execute_query(*args, **kwargs):
     if _execute_query is None:
         raise RuntimeError("dashboard query dependencies are not configured")
     return _execute_query(*args, **kwargs)
+
+
+def get_session_profile():
+    if _get_session_profile is None:
+        raise RuntimeError("dashboard query dependencies are not configured")
+    return _get_session_profile()
 
 
 def fetch_scalar(*args, **kwargs):
